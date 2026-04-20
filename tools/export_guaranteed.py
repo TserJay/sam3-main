@@ -46,33 +46,105 @@ def export_guaranteed():
     
     if os.path.exists(local_weights_path):
         print(f"  发现本地权重文件: {local_weights_path}")
-        # 先创建模型结构，不加载权重
-        model = build_sam3_image_model(
-            bpe_path=bpe_path,
-            load_from_HF=False,  # 不从 HF 下载
-        )
-        # 加载本地权重
-        checkpoint = torch.load(local_weights_path, map_location=device)
         
-        # 处理不同的权重格式
-        if isinstance(checkpoint, dict):
-            if 'model_state_dict' in checkpoint:
-                model.load_state_dict(checkpoint['model_state_dict'])
-            elif 'state_dict' in checkpoint:
-                model.load_state_dict(checkpoint['state_dict'])
-            elif 'model' in checkpoint:
-                model.load_state_dict(checkpoint['model'])
-            else:
-                # 直接是 state_dict
-                model.load_state_dict(checkpoint)
+        # 先加载权重文件，检查格式
+        checkpoint = torch.load(local_weights_path, map_location='cpu')
+        
+        print(f"  权重文件类型: {type(checkpoint)}")
+        
+        # 检查是否是 TorchScript 模型
+        if hasattr(checkpoint, 'code') or str(type(checkpoint)) == "<class 'torch.jit._script.RecursiveScriptModule'>":
+            print("  检测到 TorchScript 模型，直接保存")
+            # 这是 TorchScript 模型，直接保存
+            ts_path = os.path.join(output_dir, "sam3_traced.pt")
+            checkpoint.save(ts_path)
+            print(f"  ✅ TorchScript 模型已保存: {ts_path}")
+            
+            # 仍然需要创建原始模型来导出权重
+            print("  从 HuggingFace 加载原始模型结构...")
+            model = build_sam3_image_model(
+                bpe_path=bpe_path,
+                load_from_HF=True,
+            )
         else:
-            # 可能是 TorchScript 模型或直接是 state_dict
-            if hasattr(checkpoint, 'state_dict'):
-                model.load_state_dict(checkpoint.state_dict())
+            # 创建模型结构
+            model = build_sam3_image_model(
+                bpe_path=bpe_path,
+                load_from_HF=False,
+            )
+            
+            # 处理不同的权重格式
+            if isinstance(checkpoint, dict):
+                print(f"  权重字典 keys: {list(checkpoint.keys())[:10]}")
+                
+                # 检查是否需要添加前缀
+                sample_key = list(checkpoint.keys())[0] if checkpoint else ""
+                
+                if sample_key.startswith("detector."):
+                    # 需要去掉 detector. 前缀
+                    print("  检测到 'detector.' 前缀，正在处理...")
+                    new_checkpoint = {}
+                    for k, v in checkpoint.items():
+                        if k.startswith("detector."):
+                            new_key = k.replace("detector.", "")
+                            new_checkpoint[new_key] = v
+                        else:
+                            new_checkpoint[k] = v
+                    checkpoint = new_checkpoint
+                
+                elif sample_key.startswith("model."):
+                    # 需要去掉 model. 前缀
+                    print("  检测到 'model.' 前缀，正在处理...")
+                    new_checkpoint = {}
+                    for k, v in checkpoint.items():
+                        if k.startswith("model."):
+                            new_key = k.replace("model.", "")
+                            new_checkpoint[new_key] = v
+                        else:
+                            new_checkpoint[k] = v
+                    checkpoint = new_checkpoint
+                
+                # 尝试加载，允许部分匹配
+                try:
+                    result = model.load_state_dict(checkpoint, strict=False)
+                    if result.missing_keys:
+                        print(f"  ⚠️ 缺失的 keys 数量: {len(result.missing_keys)}")
+                        print(f"     前5个: {result.missing_keys[:5]}")
+                    if result.unexpected_keys:
+                        print(f"  ⚠️ 意外的 keys 数量: {len(result.unexpected_keys)}")
+                        print(f"     前5个: {result.unexpected_keys[:5]}")
+                    
+                    # 检查是否加载了足够的权重
+                    loaded_keys = len(checkpoint) - len(result.unexpected_keys)
+                    total_keys = len(model.state_dict())
+                    print(f"  加载进度: {loaded_keys}/{total_keys} keys")
+                    
+                    if loaded_keys < total_keys * 0.5:
+                        print("  ⚠️ 加载的权重少于50%，尝试从 HuggingFace 补充...")
+                        # 从 HF 加载补充权重
+                        model_hf = build_sam3_image_model(
+                            bpe_path=bpe_path,
+                            load_from_HF=True,
+                        )
+                        model.load_state_dict(model_hf.state_dict())
+                        print("  ✅ 已从 HuggingFace 补充权重")
+                    
+                except Exception as e:
+                    print(f"  ⚠️ 权重加载失败: {e}")
+                    print("  从 HuggingFace 加载...")
+                    model = build_sam3_image_model(
+                        bpe_path=bpe_path,
+                        load_from_HF=True,
+                    )
             else:
-                model.load_state_dict(checkpoint)
+                print(f"  未知的权重格式: {type(checkpoint)}")
+                print("  从 HuggingFace 加载...")
+                model = build_sam3_image_model(
+                    bpe_path=bpe_path,
+                    load_from_HF=True,
+                )
         
-        print(f"  ✅ 从本地权重加载成功")
+        print(f"  ✅ 权重处理完成")
     else:
         print(f"  未找到本地权重，从 HuggingFace 下载...")
         model = build_sam3_image_model(
