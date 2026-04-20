@@ -12,7 +12,7 @@ services:
       - ${PWD}:${PWD}
     working_dir: ${PWD}
     privileged: true
-    command: python3 app.py
+    command: python3 sam3_ext/api/app.py
     deploy:
       resources:
         reservations:

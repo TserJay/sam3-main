@@ -12,10 +12,10 @@ from flask_cors import CORS
 import numpy as np
 
 # 导入您的原有模块
-from test_picture_to_picture_optimizer_batch_inference import this_main as a_main, xyxy2cxcywh_norm
-from test_picture_to_picture_optimizer import this_main as b_main
-from word_picture_batch_inference import this_main as c_main
-from test_words_picture import words_to_picture
+from sam3_ext.inference.test_picture_to_picture_optimizer_batch_inference import this_main as a_main, xyxy2cxcywh_norm
+from sam3_ext.inference.test_picture_to_picture_optimizer import this_main as b_main
+from sam3_ext.inference.word_picture_batch_inference import this_main as c_main
+from sam3_ext.inference.test_words_picture import words_to_picture
 
 import sam3
 import torch
@@ -800,6 +800,11 @@ def cleanup():
         return jsonify({'success': True, 'message': '资源清理完成'})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+def create_app():
+    """创建Flask应用"""
+    return app
 
 
 if __name__ == '__main__':
