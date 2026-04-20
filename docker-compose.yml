@@ -1,0 +1,31 @@
+services:
+  back_app:
+    image: sam3_cuda12.6_torch2.8_add_celery:v5
+    hostname: sam3_gb
+    container_name: sam3_gb
+    restart: always
+    ports:
+      - "30009:5000"
+    environment:
+      TZ: Asia/Shanghai
+    volumes:
+      - ${PWD}:${PWD}
+    working_dir: ${PWD}
+    privileged: true
+    command: python3 app.py
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    networks:
+      - network-sam3-gb
+
+networks:
+  network-sam3-gb:
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.59.0.0/16
